@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+results/
+results_cli/
+experiments/
+web_results/
+uploads/
+denoiser_results.png
+frequency_spectrum.png
+*.log
