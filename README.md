@@ -15,6 +15,7 @@ Create and activate the virtual environment (optional if you already have one):
 
 ```powershell
 python -m venv .venv
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned (bypass if needed)
 & .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
