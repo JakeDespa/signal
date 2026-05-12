@@ -292,6 +292,29 @@ INDEX_HTML = """
             line-height: 1.55;
             margin: 0;
         }
+        .guide {
+            margin-top: 14px;
+            display: grid;
+            gap: 10px;
+        }
+        .guide-item {
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid var(--line);
+        }
+        .guide-item h3 {
+            margin: 0 0 6px;
+            font-size: 0.98rem;
+            color: #e2f3ff;
+            letter-spacing: -0.01em;
+        }
+        .guide-item p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
         .results-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -415,6 +438,24 @@ INDEX_HTML = """
             <div class="panel card">
                 <h2 class="section-title">Project notes</h2>
                 <p class="note">This frontend is designed for quick experiments: it saves the original, noisy, and filtered images in <code>web_results/</code> and prints a score for each output. For best results, start with low noise and a Gaussian filter, then compare against the FFT filter.</p>
+                <div class="guide">
+                    <div class="guide-item">
+                        <h3>Average filter (box blur)</h3>
+                        <p>Replaces each pixel with the local neighborhood mean. It removes random noise quickly but also softens edges. Spectrum view: high-frequency components (fine detail and sharp edges) are reduced broadly.</p>
+                    </div>
+                    <div class="guide-item">
+                        <h3>Gaussian filter</h3>
+                        <p>Applies a smooth, center-weighted blur controlled by sigma. It usually preserves structure better than a box filter at similar noise levels. Spectrum view: frequencies fade gradually from center to outer regions instead of a hard cutoff.</p>
+                    </div>
+                    <div class="guide-item">
+                        <h3>FFT low-pass filter</h3>
+                        <p>Moves the image to frequency domain and keeps only frequencies inside a circular radius set by cutoff. This can strongly suppress noise but may remove texture if cutoff is too small. Spectrum view: bright central disk remains, outer high-frequency ring is suppressed.</p>
+                    </div>
+                    <div class="guide-item">
+                        <h3>How to read the spectrum</h3>
+                        <p>The center contains low frequencies (overall shapes and lighting), and farther regions contain high frequencies (fine detail and noise). Better denoising usually means less scattered high-frequency energy while keeping meaningful mid-frequency structure.</p>
+                    </div>
+                </div>
                 <p class="footer">Tip: if the UI feels too slow to render plots, use the web page for the image comparison only and keep the CLI for batch experiments.</p>
             </div>
         </section>
@@ -472,9 +513,7 @@ def process():
     save_array_as_png(noisy, RESULTS / noisy_name)
     save_frequency_spectrum(original, RESULTS / f"{stem}_orig_spectrum.png", "Original spectrum")
     save_frequency_spectrum(noisy, RESULTS / f"{stem}_noisy_spectrum.png", "Noisy spectrum")
-    out_files["original"] = orig_name
     out_files["noisy"] = noisy_name
-    spectrum_files["original"] = f"{stem}_orig_spectrum.png"
     spectrum_files["noisy"] = f"{stem}_noisy_spectrum.png"
 
     snrs = {"noisy": compute_snr(original, noisy)}
@@ -488,10 +527,22 @@ def process():
         spectrum_files[label] = spectrum_name
 
         # Render results page
+    spectrum_notes = {
+        "original": "Baseline spectrum: detail and structure are intact across low and high frequencies.",
+        "noisy": "Noise spreads energy into outer high-frequency regions, making the spectrum look more scattered.",
+    }
     rows = []
     for key, fname in out_files.items():
         spectrum_name = spectrum_files.get(key)
-        rows.append((key, f"/results/{fname}", snrs.get(key), fname, f"/results/{spectrum_name}" if spectrum_name else None))
+        if key.startswith("average_"):
+            note = "Average filtering suppresses high frequencies broadly, so edges and texture are softened."
+        elif key.startswith("gaussian_"):
+            note = "Gaussian filtering reduces high frequencies smoothly, usually preserving overall shapes better."
+        elif key.startswith("fft_"):
+            note = "FFT low-pass keeps center frequencies and cuts outer regions based on the cutoff radius."
+        else:
+            note = spectrum_notes.get(key, "Low frequencies near the center represent coarse structure; outer regions represent fine detail.")
+        rows.append((key, f"/results/{fname}", snrs.get(key), fname, f"/results/{spectrum_name}" if spectrum_name else None, note))
 
     RESULT_HTML = """
         <!doctype html>
@@ -563,6 +614,12 @@ def process():
                     aspect-ratio: 1 / 1;
                     object-fit: cover;
                 }
+                .spectrum-note {
+                    margin: 8px 0 0;
+                    font-size: 0.86rem;
+                    line-height: 1.45;
+                    color: var(--muted);
+                }
                 .meta {
                     display: flex;
                     justify-content: space-between;
@@ -582,13 +639,13 @@ def process():
                 <div class="top">
                     <div>
                         <h1>Results</h1>
-                        <div class="subtitle">Original, noisy, filtered outputs, and their spectrum graphs saved to <code>web_results/</code>.</div>
+                        <div class="subtitle">Noisy, filtered outputs, and their spectrum graphs saved to <code>web_results/</code>.</div>
                     </div>
                     <a class="btn" href="/">Run another image</a>
                 </div>
 
                 <div class="grid">
-                {% for label, src, snr, fname, spectrum_src in rows %}
+                {% for label, src, snr, fname, spectrum_src, spectrum_note in rows %}
                     <div class="card result-card">
                         <div class="meta">
                             <span>{{label}}</span>
@@ -598,6 +655,7 @@ def process():
                         {% if spectrum_src %}
                         <div class="spectrum">
                             <img src="{{spectrum_src}}" alt="{{label}} spectrum">
+                            <p class="spectrum-note">{{spectrum_note}}</p>
                         </div>
                         {% endif %}
                         <div class="subtitle"><a class="btn" href="{{src}}" download="{{fname}}">Download PNG</a></div>
