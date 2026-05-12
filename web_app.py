@@ -12,6 +12,9 @@ except Exception:
 from pathlib import Path
 import uuid
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from PIL import Image
 
 from image_denoiser import (
@@ -45,6 +48,17 @@ def save_array_as_png(arr, path: Path):
     arr_u8 = (np.clip(arr, 0.0, 1.0) * 255).astype(np.uint8)
     img = Image.fromarray(arr_u8)
     img.save(path)
+
+
+def save_frequency_spectrum(image, path: Path, title: str):
+    spectrum = np.log1p(np.abs(np.fft.fftshift(np.fft.fft2(image))))
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.imshow(spectrum, cmap="inferno")
+    ax.set_title(title)
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 INDEX_HTML = """
@@ -451,12 +465,17 @@ def process():
     # Save images
     stem = (Path(image_path).stem if image_path else "camera")
     out_files = {}
+    spectrum_files = {}
     orig_name = f"{stem}_orig.png"
     noisy_name = f"{stem}_noisy.png"
     save_array_as_png(original, RESULTS / orig_name)
     save_array_as_png(noisy, RESULTS / noisy_name)
+    save_frequency_spectrum(original, RESULTS / f"{stem}_orig_spectrum.png", "Original spectrum")
+    save_frequency_spectrum(noisy, RESULTS / f"{stem}_noisy_spectrum.png", "Noisy spectrum")
     out_files["original"] = orig_name
     out_files["noisy"] = noisy_name
+    spectrum_files["original"] = f"{stem}_orig_spectrum.png"
+    spectrum_files["noisy"] = f"{stem}_noisy_spectrum.png"
 
     snrs = {"noisy": compute_snr(original, noisy)}
     for label, arr in results.items():
@@ -464,11 +483,15 @@ def process():
         save_array_as_png(arr, RESULTS / name)
         out_files[label] = name
         snrs[label] = compute_snr(original, arr)
+        spectrum_name = f"{stem}_{label}_spectrum.png"
+        save_frequency_spectrum(arr, RESULTS / spectrum_name, f"{label.replace('_', ' ')} spectrum")
+        spectrum_files[label] = spectrum_name
 
         # Render results page
     rows = []
     for key, fname in out_files.items():
-                rows.append((key, f"/results/{fname}", snrs.get(key), fname))
+        spectrum_name = spectrum_files.get(key)
+        rows.append((key, f"/results/{fname}", snrs.get(key), fname, f"/results/{spectrum_name}" if spectrum_name else None))
 
     RESULT_HTML = """
         <!doctype html>
@@ -533,6 +556,13 @@ def process():
                     margin-top: 10px;
                     border: 1px solid var(--line);
                 }
+                .spectrum {
+                    margin-top: 12px;
+                }
+                .spectrum img {
+                    aspect-ratio: 1 / 1;
+                    object-fit: cover;
+                }
                 .meta {
                     display: flex;
                     justify-content: space-between;
@@ -552,19 +582,24 @@ def process():
                 <div class="top">
                     <div>
                         <h1>Results</h1>
-                        <div class="subtitle">Original, noisy, and filtered outputs saved to <code>web_results/</code>.</div>
+                        <div class="subtitle">Original, noisy, filtered outputs, and their spectrum graphs saved to <code>web_results/</code>.</div>
                     </div>
                     <a class="btn" href="/">Run another image</a>
                 </div>
 
                 <div class="grid">
-                {% for label, src, snr, fname in rows %}
+                {% for label, src, snr, fname, spectrum_src in rows %}
                     <div class="card result-card">
                         <div class="meta">
                             <span>{{label}}</span>
                             {% if snr is not none %}<span class="snr">{{"%.2f"|format(snr)}} dB</span>{% endif %}
                         </div>
                         <img src="{{src}}" alt="{{label}}">
+                        {% if spectrum_src %}
+                        <div class="spectrum">
+                            <img src="{{spectrum_src}}" alt="{{label}} spectrum">
+                        </div>
+                        {% endif %}
                         <div class="subtitle"><a class="btn" href="{{src}}" download="{{fname}}">Download PNG</a></div>
                     </div>
                 {% endfor %}
